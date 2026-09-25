@@ -3,9 +3,8 @@ import { useMsal, useIsAuthenticated } from '@azure/msal-react';
 import { loginRequest } from './authConfig';
 import axios from 'axios';
 
-// Reemplaza con la URL base de tu AWS API Gateway HTTP API
-const API_GATEWAY_URL = "https://xxxxxx.execute-api.us-east-1.amazonaws.com";
-
+// Reemplazar con la URL de Invocación ($default) copiada de AWS API Gateway
+const API_GATEWAY_URL = "https://iwnne47f0f.execute-api.us-east-1.amazonaws.com/$default";
 function App() {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
@@ -21,9 +20,8 @@ function App() {
   const [categoria, setCategoria] = useState('Soporte');
   const [prioridad, setPrioridad] = useState('ALTA');
 
-  // Estados para cambio de estado
+  // Estados para actualización
   const [solicitudId, setSolicitudId] = useState('');
-  const [nuevoEstado, setNuevoEstado] = useState('EN_PROCESO');
 
   const handleLogin = () => {
     setErrorMsg('');
@@ -34,7 +32,7 @@ function App() {
     instance.logoutRedirect({ postLogoutRedirectUri: "http://localhost:3000" });
   };
 
-  // Función helper para obtener el token de forma silenciosa
+  // Función helper para obtener el token JWT
   const obtenerToken = async () => {
     const response = await instance.acquireTokenSilent({
       ...loginRequest,
@@ -43,7 +41,7 @@ function App() {
 
     const token = response.accessToken;
 
-    // Decodificar claims (Demostración requerida en la evaluación)
+    // Decodificar claims (Demostración requerida)
     const payloadBase64 = token.split('.')[1];
     const decodedJson = JSON.parse(atob(payloadBase64));
     setTokenDecodificado(decodedJson);
@@ -66,7 +64,7 @@ function App() {
     }
   };
 
-  // 2. POST: Crear nueva solicitud (Cliente / Opcional otros)
+  // 2. POST: Crear nueva solicitud
   const crearSolicitud = async (e) => {
     e.preventDefault();
     try {
@@ -74,7 +72,7 @@ function App() {
       const token = await obtenerToken();
       const payload = { titulo, descripcion, categoria, prioridad };
 
-      const res = await axios.post(`${API_GATEWAY_URL}/v1/solicitudes`, payload, {
+      const res = await axios.post(`${API_GATEWAY_URL}/api/bff/solicitudes`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -88,27 +86,27 @@ function App() {
     }
   };
 
-  // 3. PUT/PATCH: Actualizar Estado (Operador / Administrador)
-  const actualizarEstado = async (e) => {
+  // 3. PUT: Actualizar / Editar Solicitud por ID
+  const actualizarSolicitud = async (e) => {
     e.preventDefault();
     try {
       setErrorMsg('');
       const token = await obtenerToken();
+      const payload = { titulo, descripcion, categoria, prioridad };
 
-      const res = await axios.patch(`${API_GATEWAY_URL}/v1/solicitudes/${solicitudId}/estado`,
-          { estado: nuevoEstado },
-          { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await axios.put(`${API_GATEWAY_URL}/api/bff/solicitudes/${solicitudId}`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-      alert("Estado actualizado con éxito");
+      alert("Solicitud actualizada con éxito");
       setRespuestaApi(res.data);
     } catch (error) {
       console.error(error);
-      setErrorMsg("Regla de negocio no válida o falta de permisos (Ej: Pasar a RESUELTA sin estar EN_PROCESO).");
+      setErrorMsg("Error al actualizar la solicitud o falta de permisos.");
     }
   };
 
-  // Extraer los roles del token para condicionar la interfaz
+  // Extraer roles del token
   const rolesUsuario = tokenDecodificado?.roles || [];
 
   return (
@@ -148,10 +146,15 @@ function App() {
               {/* SECCIÓN 1: ACCIONES DE LECTURA (APIs) */}
               <div style={{ marginBottom: '25px' }}>
                 <h3>1. Consultas Rápidas (AWS API Gateway)</h3>
-                <button onClick={() => llamarApiGet('/v1/solicitudes/mias')}>Mis Solicitudes (/v1/solicitudes/mias)</button>
-                <button onClick={() => llamarApiGet('/v1/solicitudes')} style={{ marginLeft: '8px' }}>Todas las Solicitudes (/v1/solicitudes)</button>
-                <button onClick={() => llamarApiGet('/v1/catalogo')} style={{ marginLeft: '8px' }}>Ver Catálogo (/v1/catalogo)</button>
-                <button onClick={() => llamarApiGet('/v2/solicitudes')} style={{ marginLeft: '8px', backgroundColor: '#e2e3e5' }}>Versión v2 (/v2/solicitudes)</button>
+                <button onClick={() => llamarApiGet('/api/bff/solicitudes')}>
+                  Listar Solicitudes (/api/bff/solicitudes)
+                </button>
+                <button onClick={() => llamarApiGet('/api/bff/categorias')} style={{ marginLeft: '8px' }}>
+                  Ver Categorías (/api/bff/categorias)
+                </button>
+                <button onClick={() => llamarApiGet('/api/bff/prioridades')} style={{ marginLeft: '8px' }}>
+                  Ver Prioridades (/api/bff/prioridades)
+                </button>
               </div>
 
               {/* SECCIÓN 2: FORMULARIO CREAR SOLICITUD */}
@@ -190,10 +193,10 @@ function App() {
                 </form>
               </div>
 
-              {/* SECCIÓN 3: CAMBIAR ESTADO DE SOLICITUD (Operador / Admin) */}
+              {/* SECCIÓN 3: EDITAR / ACTUALIZAR SOLICITUD */}
               <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '25px' }}>
-                <h3>3. Actualizar Estado de Solicitud (Operador / Admin)</h3>
-                <form onSubmit={actualizarEstado} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <h3>3. Actualizar Solicitud por ID (PUT)</h3>
+                <form onSubmit={actualizarSolicitud} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <input
                       type="text"
                       placeholder="ID Solicitud"
@@ -202,15 +205,8 @@ function App() {
                       required
                       style={{ padding: '8px' }}
                   />
-                  <select value={nuevoEstado} onChange={(e) => setNuevoEstado(e.target.value)} style={{ padding: '8px' }}>
-                    <option value="ASIGNADA">ASIGNADA</option>
-                    <option value="EN_PROCESO">EN_PROCESO</option>
-                    <option value="RESUELTA">RESUELTA</option>
-                    <option value="CERRADA">CERRADA</option>
-                    <option value="CANCELADA">CANCELADA</option>
-                  </select>
                   <button type="submit" style={{ padding: '8px 15px', background: '#198754', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                    Cambiar Estado
+                    Actualizar Solicitud
                   </button>
                 </form>
               </div>
